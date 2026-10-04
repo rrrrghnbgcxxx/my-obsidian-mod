@@ -1,0 +1,145 @@
+name: Build Obsidian Mod
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: 21
+          distribution: temurin
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+      - name: Write mod files
+        run: |
+          rm -rf src
+          R=src/main/resources
+          D=$R/data/obsidiantrees
+          J=src/main/java/com/example/obsidiantrees
+          mkdir -p $J $R/assets/obsidiantrees/lang $R/assets/obsidiantrees/models/item $D/recipe $D/worldgen/configured_feature $D/worldgen/placed_feature
+          cat > build.gradle <<'X'
+          plugins { id 'fabric-loom' version '1.7-SNAPSHOT' }
+          version = project.mod_version
+          group = project.maven_group
+          base { archivesName = project.archives_base_name }
+          dependencies {
+            minecraft "com.mojang:minecraft:${project.minecraft_version}"
+            mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+            modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+            modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+          }
+          processResources {
+            inputs.property "version", project.version
+            filesMatching("fabric.mod.json") { expand "version": project.version }
+          }
+          tasks.withType(JavaCompile).configureEach { it.options.release = 21 }
+          java { withSourcesJar() }
+          X
+          cat > gradle.properties <<'X'
+          org.gradle.jvmargs=-Xmx2G
+          minecraft_version=1.21.1
+          yarn_mappings=1.21.1+build.3
+          loader_version=0.16.5
+          fabric_version=0.105.0+1.21.1
+          mod_version=1.0.0
+          maven_group=com.example
+          archives_base_name=obsidian-trees
+          X
+          cat > settings.gradle <<'X'
+          pluginManagement { repositories { maven { url = 'https://maven.fabricmc.net/' }
+          mavenCentral()
+          gradlePluginPortal() } }
+          X
+          cat > $J/ObsidianToolMaterial.java <<'X'
+          package com.example.obsidiantrees;
+          import net.minecraft.block.Block;
+          import net.minecraft.item.Items;
+          import net.minecraft.item.ToolMaterial;
+          import net.minecraft.recipe.Ingredient;
+          import net.minecraft.registry.tag.BlockTags;
+          import net.minecraft.registry.tag.TagKey;
+          public enum ObsidianToolMaterial implements ToolMaterial {
+            INSTANCE;
+            public int getDurability() { return 1800; }
+            public float getMiningSpeedMultiplier() { return 8.0f; }
+            public float getAttackDamage() { return 3.5f; }
+            public TagKey<Block> getInverseTag() { return BlockTags.INCORRECT_FOR_DIAMOND_TOOL; }
+            public int getEnchantability() { return 8; }
+            public Ingredient getRepairIngredient() { return Ingredient.ofItems(Items.OBSIDIAN); }
+          }
+          X
+          cat > $J/ObsidianTreesMod.java <<'X'
+          package com.example.obsidiantrees;
+          import net.fabricmc.api.ModInitializer;
+          import net.fabricmc.fabric.api.biome.v1.BiomeModifications;
+          import net.fabricmc.fabric.api.biome.v1.BiomeSelectors;
+          import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
+          import net.minecraft.item.*;
+          import net.minecraft.registry.*;
+          import net.minecraft.util.Identifier;
+          import net.minecraft.world.gen.GenerationStep;
+          import net.minecraft.world.gen.feature.PlacedFeature;
+          public class ObsidianTreesMod implements ModInitializer {
+            public static final String MOD_ID = "obsidiantrees";
+            public static final ToolMaterial MAT = ObsidianToolMaterial.INSTANCE;
+            public static final Item SWORD = reg("obsidian_sword", new SwordItem(MAT, new Item.Settings().attributeModifiers(SwordItem.createAttributeModifiers(MAT, 3, -2.4f))));
+            public static final Item PICKAXE = reg("obsidian_pickaxe", new PickaxeItem(MAT, new Item.Settings().attributeModifiers(PickaxeItem.createAttributeModifiers(MAT, 1.0f, -2.8f))));
+            public static final Item AXE = reg("obsidian_axe", new AxeItem(MAT, new Item.Settings().attributeModifiers(AxeItem.createAttributeModifiers(MAT, 5.0f, -3.0f))));
+            public static final Item SHOVEL = reg("obsidian_shovel", new ShovelItem(MAT, new Item.Settings().attributeModifiers(ShovelItem.createAttributeModifiers(MAT, 1.5f, -3.0f))));
+            public static final Item HOE = reg("obsidian_hoe", new HoeItem(MAT, new Item.Settings().attributeModifiers(HoeItem.createAttributeModifiers(MAT, -3.0f, 0.0f))));
+            private static Item reg(String name, Item item) {
+              return Registry.register(Registries.ITEM, Identifier.of(MOD_ID, name), item);
+            }
+            public void onInitialize() {
+              ItemGroupEvents.modifyEntriesEvent(ItemGroups.TOOLS).register(e -> {
+                e.add(SWORD); e.add(AXE); e.add(PICKAXE); e.add(SHOVEL); e.add(HOE);
+              });
+              RegistryKey<PlacedFeature> tree = RegistryKey.of(RegistryKeys.PLACED_FEATURE, Identifier.of(MOD_ID, "obsidian_tree"));
+              BiomeModifications.addFeature(BiomeSelectors.foundInOverworld(), GenerationStep.Feature.VEGETAL_DECORATION, tree);
+            }
+          }
+          X
+          cat > $R/fabric.mod.json <<'X'
+          {"schemaVersion":1,"id":"obsidiantrees","version":"${version}","name":"Obsidian Trees","environment":"*",
+          "entrypoints":{"main":["com.example.obsidiantrees.ObsidianTreesMod"]},
+          "depends":{"fabricloader":">=0.16.0","minecraft":"~1.21.1","java":">=21","fabric-api":"*"}}
+          X
+          cat > $R/assets/obsidiantrees/lang/en_us.json <<'X'
+          {"item.obsidiantrees.obsidian_sword":"Obsidian Sword","item.obsidiantrees.obsidian_pickaxe":"Obsidian Pickaxe","item.obsidiantrees.obsidian_axe":"Obsidian Axe","item.obsidiantrees.obsidian_shovel":"Obsidian Shovel","item.obsidiantrees.obsidian_hoe":"Obsidian Hoe"}
+          X
+          for t in sword pickaxe axe shovel hoe; do
+          echo '{"parent":"minecraft:item/handheld","textures":{"layer0":"minecraft:item/diamond_'$t'"}}' > $R/assets/obsidiantrees/models/item/obsidian_$t.json
+          done
+          r() { echo '{"type":"minecraft:crafting_shaped","category":"equipment","pattern":'"$2"',"key":{"O":{"item":"minecraft:obsidian"},"S":{"item":"minecraft:stick"}},"result":{"id":"obsidiantrees:obsidian_'$1'","count":1}}' > $D/recipe/obsidian_$1.json; }
+          r sword '["O","O","S"]'
+          r pickaxe '["OOO"," S "," S "]'
+          r axe '["OO","OS"," S"]'
+          r shovel '["O","S","S"]'
+          r hoe '["OO"," S"," S"]'
+          cat > $D/worldgen/configured_feature/obsidian_tree.json <<'X'
+          {"type":"minecraft:tree","config":{
+          "dirt_provider":{"type":"minecraft:simple_state_provider","state":{"Name":"minecraft:dirt"}},
+          "trunk_provider":{"type":"minecraft:simple_state_provider","state":{"Name":"minecraft:obsidian"}},
+          "foliage_provider":{"type":"minecraft:simple_state_provider","state":{"Name":"minecraft:crying_obsidian"}},
+          "trunk_placer":{"type":"minecraft:straight_trunk_placer","base_height":5,"height_rand_a":2,"height_rand_b":1},
+          "foliage_placer":{"type":"minecraft:blob_foliage_placer","radius":2,"offset":0,"height":3},
+          "minimum_size":{"type":"minecraft:two_layers_feature_size","limit":1,"lower_size":0,"upper_size":1},
+          "ignore_vines":true,"decorators":[]}}
+          X
+          cat > $D/worldgen/placed_feature/obsidian_tree.json <<'X'
+          {"feature":"obsidiantrees:obsidian_tree","placement":[
+          {"type":"minecraft:rarity_filter","chance":8},
+          {"type":"minecraft:in_square"},
+          {"type":"minecraft:heightmap","heightmap":"WORLD_SURFACE_WG"},
+          {"type":"minecraft:block_predicate_filter","predicate":{"type":"minecraft:matching_block_tag","offset":[0,-1,0],"tag":"minecraft:dirt"}},
+          {"type":"minecraft:biome"}]}
+          X
+      - run: gradle build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: obsidian-trees-jar
+          path: build/libs/*.jar
