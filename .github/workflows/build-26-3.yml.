@@ -1,0 +1,119 @@
+name: Build Obsidian Mod 26.3
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: 25
+          distribution: temurin
+      - name: Write mod files
+        run: |
+          set -e
+          chmod +x gradlew
+          sed -i 's/"modid"/"obsidiantrees"/' build.gradle
+          rm -rf src
+          R=src/main/resources
+          D=$R/data/obsidiantrees
+          J=src/main/java/com/example/obsidiantrees
+          A=$R/assets/obsidiantrees
+          mkdir -p $J $A/lang $A/items $A/models/item $A/textures/item $D/recipe $D/tags/item $D/worldgen/configured_feature $D/worldgen/placed_feature $R/data/minecraft/tags/item
+          cat > $J/ObsidianTreesMod.java <<'X'
+          package com.example.obsidiantrees;
+          import java.util.function.Function;
+          import net.fabricmc.api.ModInitializer;
+          import net.fabricmc.fabric.api.biome.v1.BiomeModifications;
+          import net.fabricmc.fabric.api.biome.v1.BiomeSelectors;
+          import net.fabricmc.fabric.api.creativetab.v1.CreativeModeTabEvents;
+          import net.minecraft.core.Registry;
+          import net.minecraft.core.registries.BuiltInRegistries;
+          import net.minecraft.core.registries.Registries;
+          import net.minecraft.resources.Identifier;
+          import net.minecraft.resources.ResourceKey;
+          import net.minecraft.tags.BlockTags;
+          import net.minecraft.tags.TagKey;
+          import net.minecraft.world.item.AxeItem;
+          import net.minecraft.world.item.CreativeModeTabs;
+          import net.minecraft.world.item.HoeItem;
+          import net.minecraft.world.item.Item;
+          import net.minecraft.world.item.ShovelItem;
+          import net.minecraft.world.item.ToolMaterial;
+          import net.minecraft.world.level.levelgen.GenerationStep;
+          import net.minecraft.world.level.levelgen.placement.PlacedFeature;
+          public class ObsidianTreesMod implements ModInitializer {
+            public static final String MOD_ID = "obsidiantrees";
+            public static final TagKey<Item> REPAIRS_OBSIDIAN_TOOLS = TagKey.create(BuiltInRegistries.ITEM.key(), id("repairs_obsidian_tools"));
+            public static final ToolMaterial MAT = new ToolMaterial(BlockTags.INCORRECT_FOR_DIAMOND_TOOL, 1800, 8.0F, 3.5F, 8, REPAIRS_OBSIDIAN_TOOLS);
+            public static final Item SWORD = register("obsidian_sword", Item::new, new Item.Properties().sword(MAT, 3.0F, -2.4F));
+            public static final Item PICKAXE = register("obsidian_pickaxe", Item::new, new Item.Properties().pickaxe(MAT, 1.0F, -2.8F));
+            public static final Item AXE = register("obsidian_axe", p -> new AxeItem(MAT, 5.0F, -3.0F, p), new Item.Properties());
+            public static final Item SHOVEL = register("obsidian_shovel", p -> new ShovelItem(MAT, 1.5F, -3.0F, p), new Item.Properties());
+            public static final Item HOE = register("obsidian_hoe", p -> new HoeItem(MAT, -3.0F, 0.0F, p), new Item.Properties());
+            public static Identifier id(String path) {
+              return Identifier.fromNamespaceAndPath(MOD_ID, path);
+            }
+            private static Item register(String name, Function<Item.Properties, Item> factory, Item.Properties props) {
+              ResourceKey<Item> key = ResourceKey.create(Registries.ITEM, id(name));
+              Item item = factory.apply(props.setId(key));
+              return Registry.register(BuiltInRegistries.ITEM, key, item);
+            }
+            @Override
+            public void onInitialize() {
+              CreativeModeTabEvents.modifyOutputEvent(CreativeModeTabs.TOOLS_AND_UTILITIES).register(tab -> {
+                tab.accept(SWORD);
+                tab.accept(AXE);
+                tab.accept(PICKAXE);
+                tab.accept(SHOVEL);
+                tab.accept(HOE);
+              });
+              ResourceKey<PlacedFeature> tree = ResourceKey.create(Registries.PLACED_FEATURE, id("obsidian_tree"));
+              BiomeModifications.addFeature(BiomeSelectors.foundInOverworld(), GenerationStep.Decoration.VEGETAL_DECORATION, tree);
+            }
+          }
+          X
+          cat > $R/fabric.mod.json <<'X'
+          {"schemaVersion":1,"id":"obsidiantrees","version":"${version}","name":"Obsidian Trees","environment":"*",
+          "entrypoints":{"main":["com.example.obsidiantrees.ObsidianTreesMod"]},
+          "depends":{"fabricloader":">=0.19.0","minecraft":">=26.1","java":">=25","fabric-api":"*"}}
+          X
+          cat > $A/lang/en_us.json <<'X'
+          {"item.obsidiantrees.obsidian_sword":"Obsidian Sword","item.obsidiantrees.obsidian_pickaxe":"Obsidian Pickaxe","item.obsidiantrees.obsidian_axe":"Obsidian Axe","item.obsidiantrees.obsidian_shovel":"Obsidian Shovel","item.obsidiantrees.obsidian_hoe":"Obsidian Hoe"}
+          X
+          echo '{"values":["minecraft:obsidian"]}' > $D/tags/item/repairs_obsidian_tools.json
+          for p in sword:swords pickaxe:pickaxes axe:axes shovel:shovels hoe:hoes; do
+          t=${p%%:*}; g=${p##*:}
+          echo '{"model":{"type":"minecraft:model","model":"obsidiantrees:item/obsidian_'$t'"}}' > $A/items/obsidian_$t.json
+          echo '{"parent":"minecraft:item/handheld","textures":{"layer0":"obsidiantrees:item/obsidian_'$t'"}}' > $A/models/item/obsidian_$t.json
+          echo '{"values":["obsidiantrees:obsidian_'$t'"]}' > $R/data/minecraft/tags/item/$g.json
+          done
+          r() { echo '{"type":"minecraft:crafting_shaped","category":"equipment","pattern":'"$2"',"key":{"O":"minecraft:obsidian","S":"minecraft:stick"},"result":{"id":"obsidiantrees:obsidian_'$1'","count":1}}' > $D/recipe/obsidian_$1.json; }
+          r sword '["O","O","S"]'
+          r pickaxe '["OOO"," S "," S "]'
+          r axe '["OO","OS"," S"]'
+          r shovel '["O","S","S"]'
+          r hoe '["OO"," S"," S"]'
+          cat > $D/worldgen/configured_feature/obsidian_tree.json <<'X'
+          {"type":"minecraft:tree","config":{
+          "dirt_provider":{"type":"minecraft:simple_state_provider","state":{"Name":"minecraft:dirt"}},
+          "trunk_provider":{"type":"minecraft:simple_state_provider","state":{"Name":"minecraft:obsidian"}},
+          "foliage_provider":{"type":"minecraft:simple_state_provider","state":{"Name":"minecraft:crying_obsidian"}},
+          "trunk_placer":{"type":"minecraft:straight_trunk_placer","base_height":5,"height_rand_a":2,"height_rand_b":1},
+          "foliage_placer":{"type":"minecraft:blob_foliage_placer","radius":2,"offset":0,"height":3},
+          "minimum_size":{"type":"minecraft:two_layers_feature_size","limit":1,"lower_size":0,"upper_size":1},
+          "force_dirt":false,"ignore_vines":true,"decorators":[]}}
+          X
+          cat > $D/worldgen/placed_feature/obsidian_tree.json <<'X'
+          {"feature":"obsidiantrees:obsidian_tree","placement":[
+          {"type":"minecraft:rarity_filter","chance":8},
+          {"type":"minecraft:in_square"},
+          {"type":"minecraft:heightmap","heightmap":"WORLD_SURFACE_WG"},
+          {"type":"minecraft:block_predicate_filter","predicate":{"type":"minecraft:matching_block_tag","offset":[0,-1,0],"tag":"minecraft:dirt"}},
+          {"type":"minecraft:biome"}]}
+          X
+          echo 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAs0lEQVR4nGNkIBFwc4j8h7HzvbYyMJKjWYRXkUFaVI/h4r2NDEzkanbQSGNgYGAgzgBsmidu8ybOAHyav/54w4jXAEKa8bqAGM0MDAyIWECOHhggpBnDBSK8iiRpxuoCmCHEaMbqb24Okf9WWsn/YWxsXsPqBZjCfC8Zhov3NqJ4h6AByJonbnvCwMDAwPDm833iDIE5syrIAMXJxHqBgZtD5P/sHHviFGMBjMiaiAppNAAAi+pdqSW2bwYAAAAASUVORK5CYII=' | base64 -d > $R/assets/obsidiantrees/textures/item/obsidian_sword.png
+          echo 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAzUlEQVR4nGNgoBAwYhPk5hD5j0386483GOqZcGnWV/JnyPfaCqdhcuiGM2LTnO+1lWHp4RwUg6VF9RgYGBgYLt7biOIaRnTN+kr+DE9fX2J48/k+igEivIoMDAwMDNG2UxgmbvOGG4LiBXTNyH6Otv3N8ObzfYalh3MY9JX8cYcBsmaEl2QYJm57gq6UgZtD5D+GF4jVrK/kz3Dx3kYGFmRN6IYha8YmjxXAoqoqyOA/tmhDVoMhR4xmimymjWaYAeRqZoQZABPAlmFoCgAUsHpyXO7X9gAAAABJRU5ErkJggg==' | base64 -d > $R/assets/obsidiantrees/textures/item/obsidian_pickaxe.png
+          echo 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAqElEQVR4nGNkIAC4OUT+o4t9/fGGEcZmIkazvpI/g76SP0O+11YMQ/EaANMMAwduzMIwhBG7
